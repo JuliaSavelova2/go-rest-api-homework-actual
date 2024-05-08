@@ -42,18 +42,20 @@ var tasks = map[string]Task{
 
 // Ниже напишите обработчики для каждого эндпоинта
 // Обработчик для получения всех задач
-func getAllTasks(w http.ResponseWriter, r *http.Request) {
-	// в заголовок записываем тип контента, у нас это данные в формате JSON
-	w.Header().Set("Content-Type", "application/json")
-	// так как все успешно, то статус OK
-	w.WriteHeader(http.StatusOK)
-	// кодируем наши задачи в JSON и записываем в тело ответа
-	encoder := json.NewEncoder(w)
-	err := encoder.Encode(tasks)
+func getTasks(w http.ResponseWriter, r *http.Request) {
+	// сериализуем данные из слайса artists
+	response, err := json.Marshal(tasks)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// в заголовок записываем тип контента, у нас это данные в формате JSON
+	w.Header().Set("Content-Type", "application/json")
+	// так как все успешно, то статус OK
+	w.WriteHeader(http.StatusOK)
+	// записываем сериализованные в JSON данные в тело ответа
+	w.Write(response)
 }
 
 // Обработчик для отправки задачи на сервер
@@ -63,62 +65,71 @@ func createTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if newTask.ID == "" {
-		newTask.ID = fmt.Sprintf("%d", len(tasks)+1) // Генерация ID, если не предоставлен
-	}
-	if newTask.Applications == nil || len(newTask.Applications) == 0 {
-		newTask.Applications = []string{r.Header.Get("User-Agent")} // Добавление User-Agent, если applications пуст
-	}
-	tasks[newTask.ID] = newTask
 
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(newTask); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if newTask.ID == "" {
+		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
 
+	if newTask.Applications == nil || len(newTask.Applications) == 0 {
+		newTask.Applications = []string{r.Header.Get("User-Agent")} // Добавление User-Agent, если applications пуст
+	}
+
+	if _, ok := tasks[newTask.ID]; ok {
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	tasks[newTask.ID] = newTask
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 }
 
 // Обработчик для получения задачи по ID
-func getTaskByID(w http.ResponseWriter, r *http.Request) {
+func getTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 
 	// Ищем задачу по ID
 	task, ok := tasks[taskID]
 	if !ok {
-		http.Error(w, "Задача не найдена", http.StatusNotFound)
+		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	encoder := json.NewEncoder(w)
-	err := encoder.Encode(task)
+
+	response, err := json.Marshal(task)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
 }
 
 // Обработчик удаления задачи по ID
 func deleteTaskByID(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
+
 	if _, ok := tasks[taskID]; !ok {
-		http.Error(w, "Задача не найдена", http.StatusNotFound)
+		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
-	delete(tasks, taskID)
-	w.Write([]byte("Успешно удалена"))
-	w.WriteHeader(http.StatusNoContent)
 
+	delete(tasks, taskID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 }
 
 func main() {
 	r := chi.NewRouter()
 
 	// здесь регистрируйте ваши обработчики
-	r.Get("/tasks", getAllTasks)
+	r.Get("/tasks", getTasks)
 	r.Post("/tasks", createTask)
-	r.Get("/tasks/{taskID}", getTaskByID)
+	r.Get("/tasks/{taskID}", getTask)
 	r.Delete("/tasks/{id}", deleteTaskByID)
 
 	if err := http.ListenAndServe(":8080", r); err != nil {
